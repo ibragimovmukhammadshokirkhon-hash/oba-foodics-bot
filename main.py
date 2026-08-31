@@ -52,7 +52,8 @@ async def foodics_webhook(request: Request):
         order = raw_order
 
     order_num = order.get("number") or order.get("reference") or order_id
-    
+    order_status = order.get("status") # 1: Active, 2: Void, 3: Closed, 4: Paid
+
     # Waiter / Cashier Name
     user = order.get("user")
     staff_name = user.get("name", "Staff") if isinstance(user, dict) else "Staff"
@@ -91,7 +92,7 @@ async def foodics_webhook(request: Request):
     else:
         payment_text = f"💳 <b>Payment:</b> {total_price} AED\n"
 
-    # Notification Messages
+    # 1. New Order / Table Opened Event
     if event == "order.created":
         msg = (
             f"🔔 <b>NEW ORDER / TABLE OPENED</b>\n\n"
@@ -102,16 +103,19 @@ async def foodics_webhook(request: Request):
         )
         send_telegram(msg)
 
-    elif event in ["order.closed", "payment.created"]:
-        msg = (
-            f"✅ <b>ORDER PAID / CLOSED</b>\n\n"
-            f"📍 <b>Table:</b> {table_name}\n"
-            f"👤 <b>Closed by:</b> {staff_name}\n"
-            f"🧾 <b>Order:</b> #{order_num}\n"
-            f"💰 <b>Total Amount:</b> {total_price} AED\n\n"
-            f"💵 <b>Payment Details:</b>\n{payment_text}\n"
-            f"🍽 <b>Ordered Items:</b>\n{items_text}"
-        )
-        send_telegram(msg)
+    # 2. Order Updated Event (Triggers when Order is Paid / Closed)
+    elif event == "order.updated":
+        # Status 3 = Closed, Status 4 = Paid, or if payments exist
+        if order_status in [3, 4] or payments:
+            msg = (
+                f"✅ <b>ORDER PAID / CLOSED</b>\n\n"
+                f"📍 <b>Table:</b> {table_name}\n"
+                f"👤 <b>Closed by:</b> {staff_name}\n"
+                f"🧾 <b>Order:</b> #{order_num}\n"
+                f"💰 <b>Total Amount:</b> {total_price} AED\n\n"
+                f"💵 <b>Payment Details:</b>\n{payment_text}\n"
+                f"🍽 <b>Ordered Items:</b>\n{items_text}"
+            )
+            send_telegram(msg)
 
     return {"status": "ok"}
