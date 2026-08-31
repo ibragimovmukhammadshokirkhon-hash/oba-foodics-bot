@@ -27,8 +27,8 @@ def send_telegram(text: str):
         print(f"Telegram error: {e}")
 
 def get_order_details(order_id: str):
-    """Foodics API'dan order, table, products va payments ma'lumotlarini olish"""
-    url = f"https://api.foodics.com/v5/orders/{order_id}?include=products,table,payments,payments.payment_method"
+    """Fetch complete details: table, user (staff), products, and payments"""
+    url = f"https://api.foodics.com/v5/orders/{order_id}?include=products,table,user,payments,payments.payment_method"
     try:
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
@@ -47,14 +47,17 @@ async def foodics_webhook(request: Request):
     if not order_id:
         return {"status": "no order id"}
 
-    # To'liq ma'lumotni API orqali yuklash
     order = get_order_details(order_id)
     if not order:
         order = raw_order
 
     order_num = order.get("number") or order.get("reference") or order_id
     
-    # Stol ma'lumoti
+    # Waiter / Cashier Name
+    user = order.get("user")
+    staff_name = user.get("name", "Staff") if isinstance(user, dict) else "Staff"
+
+    # Table
     table = order.get("table")
     if table and isinstance(table, dict):
         table_name = table.get("name", "Dine In")
@@ -63,49 +66,51 @@ async def foodics_webhook(request: Request):
 
     total_price = order.get("total_price", 0)
 
-    # Mahsulotlar ro'yxati
+    # Products List
     products = order.get("products", [])
     items_text = ""
     if products:
         for item in products:
             p_obj = item.get("product", {})
-            p_name = p_obj.get("name") if isinstance(p_obj, dict) else item.get("name", "Mahsulot")
+            p_name = p_obj.get("name") if isinstance(p_obj, dict) else item.get("name", "Item")
             p_qty = item.get("quantity", 1)
             p_price = item.get("unit_price", item.get("total_price", 0))
             items_text += f"• <b>{p_name}</b> — {p_qty}x ({p_price} AED)\n"
     else:
-        items_text = "<i>Mahsulotlar biriktirilmagan</i>\n"
+        items_text = "<i>No items attached</i>\n"
 
-    # To'lov turlari va summalarini shakllantirish
+    # Payment Methods
     payments = order.get("payments", [])
     payment_text = ""
     if payments:
         for pay in payments:
             pay_method = pay.get("payment_method", {})
-            method_name = pay_method.get("name", "Naqd/Karta") if isinstance(pay_method, dict) else "To'lov"
+            method_name = pay_method.get("name", "Cash/Card") if isinstance(pay_method, dict) else "Payment"
             pay_amount = pay.get("amount", 0)
             payment_text += f"💳 <b>{method_name}:</b> {pay_amount} AED\n"
     else:
-        payment_text = f"💳 <b>To'lov:</b> {total_price} AED\n"
+        payment_text = f"💳 <b>Payment:</b> {total_price} AED\n"
 
-    # Telegram xabarnomasi
+    # Notification Messages
     if event == "order.created":
         msg = (
-            f"🔔 <b>YANGI STOL / BUYURTMA OCHILDI</b>\n\n"
-            f"📍 <b>Stol:</b> {table_name}\n"
+            f"🔔 <b>NEW ORDER / TABLE OPENED</b>\n\n"
+            f"📍 <b>Table:</b> {table_name}\n"
+            f"👤 <b>Opened by:</b> {staff_name}\n"
             f"🧾 <b>Order:</b> #{order_num}\n\n"
-            f"🍽 <b>Tarkibi:</b>\n{items_text}"
+            f"🍽 <b>Items:</b>\n{items_text}"
         )
         send_telegram(msg)
 
     elif event in ["order.closed", "payment.created"]:
         msg = (
-            f"✅ <b>TO'LOV QILINDI / STOL YOPILDI</b>\n\n"
-            f"📍 <b>Stol:</b> {table_name}\n"
+            f"✅ <b>ORDER PAID / CLOSED</b>\n\n"
+            f"📍 <b>Table:</b> {table_name}\n"
+            f"👤 <b>Closed by:</b> {staff_name}\n"
             f"🧾 <b>Order:</b> #{order_num}\n"
-            f"💰 <b>Jami summa:</b> {total_price} AED\n\n"
-            f"💵 <b>To'lov tafsiloti:</b>\n{payment_text}\n"
-            f"🍽 <b>Yeyilgan taomlar:</b>\n{items_text}"
+            f"💰 <b>Total Amount:</b> {total_price} AED\n\n"
+            f"💵 <b>Payment Details:</b>\n{payment_text}\n"
+            f"🍽 <b>Ordered Items:</b>\n{items_text}"
         )
         send_telegram(msg)
 
