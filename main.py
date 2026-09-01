@@ -137,3 +137,30 @@ async def foodics_webhook(request: Request):
         print(f"Webhook Processing Error: {err}")
 
     return {"status": "ok"}
+@app.get("/fetch-history")
+async def fetch_history(limit: int = 50):
+    """O'tmishdagi oxirgi buyurtmalarni Foodics API'dan olib Telegram'ga yuborish"""
+    url = f"https://api.foodics.com/v5/orders?include=table,user,products,payments,payments.payment_method&page=1"
+    
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            orders = res.json().get("data", [])
+            for order in orders[:limit]:
+                # Order ma'lumotlarini formatlab Telegram'ga yuborish mantiqi
+                order_ref = order.get("number") or order.get("reference") or "—"
+                total_price = order.get("total_price", 0)
+                
+                msg = (
+                    f"📜 <b>HISTORICAL ORDER (PAST BILL)</b>\n\n"
+                    f"🧾 <b>Order:</b> #{order_ref}\n"
+                    f"💰 <b>Total Amount:</b> {total_price} AED\n"
+                    f"🕒 <b>Date:</b> {format_time(order.get('created_at'))}"
+                )
+                send_telegram(msg)
+                await asyncio.sleep(0.5)  # Telegram bot block bo'lmasligi uchun tanaffus
+            return {"status": "success", "fetched_count": len(orders[:limit])}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+        
+    return {"status": "failed"}
